@@ -1,121 +1,112 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useMemo, useRef, useState } from 'react'
+
+const sampleUsers = ['torvalds', 'gaearon', 'sindresorhus']
+const cellCount = 52 * 7
+
+const pseudoRandom = (seed) => {
+  const value = Math.sin(seed * 12.9898) * 43758.5453
+  return value - Math.floor(value)
+}
+
+const buildGridCells = () =>
+  Array.from({ length: cellCount }, (_, index) => {
+    const value = pseudoRandom(index + 1)
+    const level =
+      value > 0.94 ? 4 : value > 0.84 ? 3 : value > 0.7 ? 2 : value > 0.48 ? 1 : 0
+
+    return {
+      id: `cell-${index}`,
+      level,
+      shouldPulse: value > 0.78,
+      delay: `${Math.round(value * 7200)}ms`,
+      duration: `${2600 + Math.round(pseudoRandom(index + 32) * 2600)}ms`,
+    }
+  })
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [username, setUsername] = useState('')
+  const [submittedUser, setSubmittedUser] = useState('')
+  const inputRef = useRef(null)
+  const gridCells = useMemo(() => buildGridCells(), [])
+
+  const handleSubmit = (event) => {
+    event.preventDefault()
+    const nextUsername = username.trim().replace(/^@+/, '')
+
+    if (!nextUsername) {
+      inputRef.current?.focus()
+      return
+    }
+
+    setUsername(nextUsername)
+    setSubmittedUser(nextUsername)
+  }
+
+  const fillSampleUser = (sampleUser) => {
+    setUsername(sampleUser)
+    setSubmittedUser('')
+    inputRef.current?.focus()
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
+    <main className="landing-page">
+      <div className="ambient-grid" aria-hidden="true">
+        {gridCells.map((cell) => (
+          <span
+            className={`grid-cell grid-cell-${cell.level}${cell.shouldPulse ? ' is-pulsing' : ''}`}
+            key={cell.id}
+            style={{
+              animationDelay: cell.delay,
+              animationDuration: cell.duration,
+            }}
+          />
+        ))}
+      </div>
+
+      <section className="landing-content" aria-labelledby="landing-title">
+        <p className="eyebrow">GitHub Wrapped 2026</p>
+        <h1 id="landing-title">Your year in code.</h1>
+        <p className="subcopy">Enter any GitHub username to see their 2026 in review.</p>
+
+        <form className="landing-form" onSubmit={handleSubmit}>
+          <label className="username-field" htmlFor="github-username">
+            <span className="username-prefix" aria-hidden="true">
+              @
+            </span>
+            <input
+              id="github-username"
+              ref={inputRef}
+              type="text"
+              autoComplete="off"
+              spellCheck="false"
+              value={username}
+              onChange={(event) => {
+                setUsername(event.target.value)
+                setSubmittedUser('')
+              }}
+              placeholder="username"
+              aria-label="GitHub username"
+            />
+          </label>
+
+          <button className="generate-button" type="submit">
+            Generate Wrapped -&gt;
+          </button>
+
+          <p className="sr-only" role="status" aria-live="polite">
+            {submittedUser ? `Ready to generate GitHub Wrapped for @${submittedUser}.` : ''}
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+        </form>
 
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
+        <div className="sample-users" aria-label="Sample GitHub usernames">
+          {sampleUsers.map((sampleUser) => (
+            <button type="button" key={sampleUser} onClick={() => fillSampleUser(sampleUser)}>
+              Try: {sampleUser}
+            </button>
+          ))}
         </div>
       </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    </main>
   )
 }
 
