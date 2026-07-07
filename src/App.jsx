@@ -60,35 +60,7 @@ const createFetchLog = (mode = 'public') =>
 
 const formatNumber = (value) => (value ?? 0).toLocaleString()
 
-const slideMotion = {
-  enter: (direction) => ({
-    y: direction === 'next' ? 86 : -86,
-    opacity: 0,
-    scale: 0.9,
-    rotateX: direction === 'next' ? -12 : 12,
-    filter: 'brightness(0.72) blur(7px)',
-  }),
-  center: {
-    y: 0,
-    opacity: 1,
-    scale: 1,
-    rotateX: 0,
-    filter: 'brightness(1) blur(0)',
-  },
-  exit: (direction) => ({
-    y: direction === 'next' ? -110 : 110,
-    opacity: 0,
-    scale: 0.84,
-    rotateX: direction === 'next' ? 14 : -14,
-    filter: 'brightness(0.58) blur(8px)',
-  }),
-}
-
-const slideSpring = {
-  type: 'spring',
-  stiffness: 170,
-  damping: 26,
-}
+const AUTO_ADVANCE_MS = 3200
 
 const getLongestStreak = (days) => {
   if (!days?.length) return 0
@@ -299,7 +271,6 @@ function App() {
       {screen === 'wrapped' && wrappedData && (
         <WrappedSequence
           data={wrappedData}
-          onRefresh={() => void runLookup(lookupUser)}
           onReset={resetLookup}
         />
       )}
@@ -462,9 +433,11 @@ function ErrorPanel({ fetchError, lookupUser, onReset, onRetry }) {
   )
 }
 
-function WrappedSequence({ data, onRefresh, onReset }) {
+function WrappedSequence({ data, onReset }) {
   const [slideIndex, setSlideIndex] = useState(0)
-  const [slideDirection, setSlideDirection] = useState('next')
+  const [copied, setCopied] = useState(false)
+  const timerRef = useRef(null)
+
   const slides = useMemo(
     () => [
       { id: 'cover', render: () => <CoverSlide data={data} /> },
@@ -472,48 +445,78 @@ function WrappedSequence({ data, onRefresh, onReset }) {
       { id: 'streak', render: () => <StreakSlide data={data} /> },
       { id: 'languages', render: () => <LanguagesSlide data={data} /> },
       { id: 'personality', render: () => <PersonalitySlide data={data} /> },
-      { id: 'share', render: () => <ShareSlide data={data} onRefresh={onRefresh} onReset={onReset} /> },
+      { id: 'share', render: () => <ShareSlide data={data} /> },
     ],
-    [data, onRefresh, onReset],
+    [data],
   )
-  const currentSlide = slides[slideIndex]
+
+  const isLastSlide = slideIndex === slides.length - 1
   const progress = `${((slideIndex + 1) / slides.length) * 100}%`
-  const canGoBack = slideIndex > 0
-  const canGoNext = slideIndex < slides.length - 1
+  const archetype = getArchetype(data.metrics)
+  const commits = data.metrics.totalCommitContributions || data.metrics.recentCommits || 0
+
   const goToSlide = useCallback((nextIndex) => {
     const boundedIndex = Math.min(Math.max(nextIndex, 0), slides.length - 1)
-
-    if (boundedIndex === slideIndex) {
-      return
-    }
-
-    setSlideDirection(boundedIndex > slideIndex ? 'next' : 'prev')
+    if (boundedIndex === slideIndex) return
     setSlideIndex(boundedIndex)
   }, [slideIndex, slides.length])
 
+  // Auto-advance timing mirrors the circular CSS loader duration.
   useEffect(() => {
-    const handleKeyDown = (event) => {
-      if (event.key === 'ArrowRight') {
-        event.preventDefault()
-        goToSlide(slideIndex + 1)
-      }
-
-      if (event.key === 'ArrowLeft') {
-        event.preventDefault()
-        goToSlide(slideIndex - 1)
-      }
+    if (isLastSlide) {
+      clearTimeout(timerRef.current)
+      return
     }
 
+    timerRef.current = setTimeout(() => {
+      setSlideIndex((prev) => Math.min(prev + 1, slides.length - 1))
+    }, AUTO_ADVANCE_MS)
+
+    return () => {
+      clearTimeout(timerRef.current)
+    }
+  }, [slideIndex, isLastSlide, slides.length])
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'ArrowRight') { event.preventDefault(); goToSlide(slideIndex + 1) }
+      if (event.key === 'ArrowLeft') { event.preventDefault(); goToSlide(slideIndex - 1) }
+    }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [goToSlide, slideIndex])
 
+  const handleShare = async () => {
+    const shareText = `My GitHub Wrapped ${data.year}: I'm "${archetype.name}" with ${formatNumber(commits)} commits! Check yours at githubwrapped.dev`
+    const shareUrl = 'https://githubwrapped.dev'
+
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `GitHub Wrapped ${data.year}`, text: shareText, url: shareUrl })
+        return
+      } catch {
+        // Fall back to clipboard if native sharing is cancelled or unavailable.
+      }
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${shareText} - ${shareUrl}`)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2200)
+    } catch {
+      // Keep the wrapped flow uninterrupted if clipboard permissions are blocked.
+    }
+  }
+
   return (
-    <section className="wrapped-shell" aria-label={`GitHub Wrapped slide ${slideIndex + 1}`}>
+    <section className={`wrapped-shell${isLastSlide ? ' is-share-screen' : ''}`} aria-label={`GitHub Wrapped slide ${slideIndex + 1}`}>
+      {/* Slide overall progress bar (segment indicator) */}
       <div className="wrapped-progress" aria-hidden="true">
         <span style={{ width: progress }} />
       </div>
 
+      {/* Browser-style countdown bar — shrinks to 0 as timer counts down */}
       <div className="slide-dots" aria-label="Slide navigation">
         {slides.map((slide, index) => (
           <button
@@ -527,36 +530,104 @@ function WrappedSequence({ data, onRefresh, onReset }) {
       </div>
 
       <button className="exit-button" type="button" onClick={onReset} aria-label="Exit Wrapped">
-        x
+        ✕
       </button>
 
-      <div className="wrapped-slide-frame">
-        <span className="stack-shadow stack-shadow-1" aria-hidden="true" />
-        <span className="stack-shadow stack-shadow-2" aria-hidden="true" />
-        <AnimatePresence custom={slideDirection} mode="wait">
-          <motion.div
-            animate="center"
-            className="wrapped-slide"
-            custom={slideDirection}
-            exit="exit"
-            initial="enter"
-            key={currentSlide.id}
-            transition={slideSpring}
-            variants={slideMotion}
-          >
-            {currentSlide.render()}
-          </motion.div>
+      {/* Tap to advance — the whole frame is clickable */}
+      <div
+        className="wrapped-slide-frame"
+        role="button"
+        tabIndex={isLastSlide ? -1 : 0}
+        aria-label={isLastSlide ? undefined : 'Tap to go to next slide'}
+        onClick={() => { if (!isLastSlide) goToSlide(slideIndex + 1) }}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !isLastSlide) goToSlide(slideIndex + 1) }}
+        style={{ cursor: isLastSlide ? 'default' : 'pointer' }}
+      >
+        <AnimatePresence initial={false}>
+          {slides.map((slide, index) => {
+            const isPast = index < slideIndex
+            const depth = index - slideIndex
+            if (isPast || depth >= 3) return null
+
+            const isFront = depth === 0
+            const strokeCirc = 2 * Math.PI * 48.5
+            return (
+              <motion.div
+                key={slide.id}
+                className="wrapped-card"
+                style={{
+                  zIndex: 10 - depth,
+                }}
+                initial={{
+                  y: 60,
+                  scale: 0.88,
+                  opacity: 0,
+                }}
+                animate={{
+                  y: depth * -12,
+                  scale: 1 - depth * 0.04,
+                  opacity: depth === 0 ? 1 : depth === 1 ? 0.6 : 0.25,
+                  pointerEvents: isFront ? 'auto' : 'none',
+                }}
+                exit={{
+                  y: -220,
+                  opacity: 0,
+                  scale: 0.82,
+                  transition: { duration: 0.28, ease: 'easeOut' },
+                }}
+                transition={{
+                  type: 'spring',
+                  stiffness: 230,
+                  damping: 24,
+                }}
+              >
+                {isFront && !isLastSlide && (
+                  <svg className="card-loading-border" viewBox="0 0 100 100" aria-hidden="true">
+                    <circle
+                      className="card-loading-track"
+                      cx="50"
+                      cy="50"
+                      r="48.5"
+                      fill="none"
+                      stroke="rgba(255,255,255,0.06)"
+                      strokeWidth="1.4"
+                    />
+                    <circle
+                      className="card-loading-progress"
+                      cx="50"
+                      cy="50"
+                      r="48.5"
+                      fill="none"
+                      stroke="var(--accent)"
+                      strokeWidth="1.8"
+                      strokeDasharray={strokeCirc}
+                      strokeDashoffset={strokeCirc}
+                      strokeLinecap="round"
+                      style={{ '--loader-duration': `${AUTO_ADVANCE_MS - 180}ms` }}
+                    />
+                  </svg>
+                )}
+                {slide.render()}
+              </motion.div>
+            )
+          })}
         </AnimatePresence>
       </div>
 
-      <div className="slide-controls">
-        <button className="secondary-button" type="button" onClick={() => goToSlide(slideIndex - 1)} disabled={!canGoBack}>
-          Back
-        </button>
-        <button className="generate-button action-button" type="button" onClick={() => goToSlide(slideIndex + 1)} disabled={!canGoNext}>
-          {canGoNext ? 'Next slide' : 'Complete'}
-        </button>
-      </div>
+      {isLastSlide && (
+        <div className="outside-card-actions">
+          <button
+            className={`generate-button action-button share-btn${copied ? ' share-btn-copied' : ''}`}
+            type="button"
+            onClick={handleShare}
+          >
+            {copied ? 'Copied!' : 'Share Wrapped'}
+          </button>
+          <button className="secondary-button" type="button" onClick={onReset}>
+            New username
+          </button>
+        </div>
+      )}
     </section>
   )
 }
@@ -682,7 +753,7 @@ function PersonalitySlide({ data }) {
   )
 }
 
-function ShareSlide({ data, onRefresh, onReset }) {
+function ShareSlide({ data }) {
   const archetype = getArchetype(data.metrics)
   const commits = data.metrics.totalCommitContributions || data.metrics.recentCommits || 0
 
@@ -706,14 +777,6 @@ function ShareSlide({ data, onRefresh, onReset }) {
           <MiniHeatmap days={data.metrics.contributionCalendar} />
           <span>githubwrapped.dev</span>
         </footer>
-      </div>
-      <div className="share-actions">
-        <button className="generate-button action-button" type="button" onClick={onRefresh}>
-          Refresh data
-        </button>
-        <button className="secondary-button" type="button" onClick={onReset}>
-          New username
-        </button>
       </div>
     </article>
   )
