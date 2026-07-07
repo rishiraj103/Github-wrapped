@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
   WRAPPED_YEAR,
   createWrappedData,
@@ -29,6 +30,11 @@ const pseudoRandom = (seed) => {
   return value - Math.floor(value)
 }
 
+const miniGridCells = Array.from({ length: 20 * 7 }, (_, index) => ({
+  id: `mini-${index}`,
+  active: pseudoRandom(index + 71) > 0.68,
+}))
+
 const buildGridCells = () =>
   Array.from({ length: cellCount }, (_, index) => {
     const value = pseudoRandom(index + 1)
@@ -53,6 +59,91 @@ const createFetchLog = (mode = 'public') =>
     }))
 
 const formatNumber = (value) => (value ?? 0).toLocaleString()
+
+const slideMotion = {
+  enter: (direction) => ({
+    y: direction === 'next' ? 86 : -86,
+    opacity: 0,
+    scale: 0.9,
+    rotateX: direction === 'next' ? -12 : 12,
+    filter: 'brightness(0.72) blur(7px)',
+  }),
+  center: {
+    y: 0,
+    opacity: 1,
+    scale: 1,
+    rotateX: 0,
+    filter: 'brightness(1) blur(0)',
+  },
+  exit: (direction) => ({
+    y: direction === 'next' ? -110 : 110,
+    opacity: 0,
+    scale: 0.84,
+    rotateX: direction === 'next' ? 14 : -14,
+    filter: 'brightness(0.58) blur(8px)',
+  }),
+}
+
+const slideSpring = {
+  type: 'spring',
+  stiffness: 170,
+  damping: 26,
+}
+
+const getLongestStreak = (days) => {
+  if (!days?.length) return 0
+
+  let longest = 0
+  let current = 0
+
+  days.forEach((day) => {
+    if (day.contributionCount > 0) {
+      current += 1
+      longest = Math.max(longest, current)
+      return
+    }
+
+    current = 0
+  })
+
+  return longest
+}
+
+const getArchetype = (metrics) => {
+  const commitCount = metrics.totalCommitContributions || metrics.recentCommits || 0
+  const streak = getLongestStreak(metrics.contributionCalendar)
+
+  if (commitCount > 700 || streak > 21) {
+    return {
+      initials: 'TG',
+      name: 'The Grinder',
+      description:
+        "You don't talk about shipping. You ship. Consistency is not a habit for you, it is identity.",
+    }
+  }
+
+  if ((metrics.languagesUsed || 0) >= 5) {
+    return {
+      initials: 'TL',
+      name: 'The Linguist',
+      description: 'You move across languages without losing rhythm. Different syntax, same momentum.',
+    }
+  }
+
+  if ((metrics.totalPullRequestContributions || 0) > 20) {
+    return {
+      initials: 'TC',
+      name: 'The Collaborator',
+      description: 'You turn ideas into pull requests and pull requests into shared momentum.',
+    }
+  }
+
+  return {
+    initials: 'TS',
+    name: 'The Shipper',
+    description: 'You kept the commit graph alive and moved projects forward one change at a time.',
+  }
+}
 
 function App() {
   const [screen, setScreen] = useState('landing')
@@ -188,7 +279,12 @@ function App() {
       )}
 
       {screen === 'loading' && (
-        <LoadingPanel fetchLog={fetchLog} lookupMode={lookupMode} lookupUser={lookupUser} />
+        <LoadingPanel
+          fetchLog={fetchLog}
+          lookupMode={lookupMode}
+          lookupUser={lookupUser}
+          onReset={resetLookup}
+        />
       )}
 
       {screen === 'error' && (
@@ -284,14 +380,58 @@ function LandingPanel({
   )
 }
 
-function LoadingPanel({ fetchLog, lookupMode, lookupUser }) {
+function LoadingPanel({ fetchLog, lookupMode, lookupUser, onReset }) {
+  const completedCount = fetchLog.filter((line) => line.status === 'complete').length
+  const hasActiveLine = fetchLog.some((line) => line.status === 'active')
+  const progress = Math.max(
+    8,
+    Math.round(((completedCount + (hasActiveLine ? 0.5 : 0)) / fetchLog.length) * 82),
+  )
+
   return (
-    <section className="lookup-panel" aria-live="polite" aria-busy="true">
-      <p className="eyebrow">@{lookupUser}</p>
-      <h2 className="screen-title">
-        {lookupMode === 'authenticated' ? 'Building full Wrapped.' : 'Fetching public data.'}
-      </h2>
-      <TerminalLog lines={fetchLog} />
+    <section className="loading-screen" aria-live="polite" aria-busy="true">
+      <div className="loading-progress" aria-hidden="true">
+        <span style={{ width: `${progress}%` }} />
+      </div>
+
+      <header className="loading-header">
+        <span>GH Wrapped {WRAPPED_YEAR}</span>
+        <button type="button" onClick={onReset} aria-label="Cancel loading">
+          x
+        </button>
+      </header>
+
+      <div className="loading-main">
+        <p className="loading-user">@{lookupUser}</p>
+
+        <div className="loading-terminal">
+          <div className="terminal-chrome" aria-hidden="true">
+            <span className="chrome-dot chrome-red" />
+            <span className="chrome-dot chrome-yellow" />
+            <span className="chrome-dot chrome-accent" />
+            <strong>session: loading_wrapped_{WRAPPED_YEAR}</strong>
+          </div>
+
+          <LoadingTerminalLog lines={fetchLog} />
+
+          <div className="loading-meta" aria-hidden="true">
+            <div>
+              <span>MODE: {lookupMode === 'authenticated' ? 'GRAPHQL' : 'PUBLIC'}</span>
+              <span>LINES_PARSED: {fetchLog.length}</span>
+            </div>
+            <div>
+              <span>THREAD: 0x8A2F</span>
+              <span>STATUS: RUNNING</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="loading-mini-grid" aria-hidden="true">
+        {miniGridCells.map((cell) => (
+          <span className={cell.active ? 'is-active' : ''} key={cell.id} />
+        ))}
+      </div>
     </section>
   )
 }
@@ -324,15 +464,15 @@ function ErrorPanel({ fetchError, lookupUser, onReset, onRetry }) {
 
 function WrappedSequence({ data, onRefresh, onReset }) {
   const [slideIndex, setSlideIndex] = useState(0)
+  const [slideDirection, setSlideDirection] = useState('next')
   const slides = useMemo(
     () => [
       { id: 'cover', render: () => <CoverSlide data={data} /> },
-      { id: 'contributions', render: () => <TotalContributionsSlide data={data} /> },
       { id: 'commits', render: () => <CommitSlide data={data} /> },
-      { id: 'heatmap', render: () => <HeatmapSlide data={data} /> },
+      { id: 'streak', render: () => <StreakSlide data={data} /> },
       { id: 'languages', render: () => <LanguagesSlide data={data} /> },
-      { id: 'repos', render: () => <RepositoriesSlide data={data} /> },
-      { id: 'summary', render: () => <SummarySlide data={data} onRefresh={onRefresh} onReset={onReset} /> },
+      { id: 'personality', render: () => <PersonalitySlide data={data} /> },
+      { id: 'share', render: () => <ShareSlide data={data} onRefresh={onRefresh} onReset={onReset} /> },
     ],
     [data, onRefresh, onReset],
   )
@@ -340,6 +480,33 @@ function WrappedSequence({ data, onRefresh, onReset }) {
   const progress = `${((slideIndex + 1) / slides.length) * 100}%`
   const canGoBack = slideIndex > 0
   const canGoNext = slideIndex < slides.length - 1
+  const goToSlide = useCallback((nextIndex) => {
+    const boundedIndex = Math.min(Math.max(nextIndex, 0), slides.length - 1)
+
+    if (boundedIndex === slideIndex) {
+      return
+    }
+
+    setSlideDirection(boundedIndex > slideIndex ? 'next' : 'prev')
+    setSlideIndex(boundedIndex)
+  }, [slideIndex, slides.length])
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'ArrowRight') {
+        event.preventDefault()
+        goToSlide(slideIndex + 1)
+      }
+
+      if (event.key === 'ArrowLeft') {
+        event.preventDefault()
+        goToSlide(slideIndex - 1)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [goToSlide, slideIndex])
 
   return (
     <section className="wrapped-shell" aria-label={`GitHub Wrapped slide ${slideIndex + 1}`}>
@@ -353,7 +520,7 @@ function WrappedSequence({ data, onRefresh, onReset }) {
             type="button"
             className={index === slideIndex ? 'is-active' : ''}
             key={slide.id}
-            onClick={() => setSlideIndex(index)}
+            onClick={() => goToSlide(index)}
             aria-label={`Go to slide ${index + 1}`}
           />
         ))}
@@ -363,15 +530,30 @@ function WrappedSequence({ data, onRefresh, onReset }) {
         x
       </button>
 
-      <div className="wrapped-slide" key={currentSlide.id}>
-        {currentSlide.render()}
+      <div className="wrapped-slide-frame">
+        <span className="stack-shadow stack-shadow-1" aria-hidden="true" />
+        <span className="stack-shadow stack-shadow-2" aria-hidden="true" />
+        <AnimatePresence custom={slideDirection} mode="wait">
+          <motion.div
+            animate="center"
+            className="wrapped-slide"
+            custom={slideDirection}
+            exit="exit"
+            initial="enter"
+            key={currentSlide.id}
+            transition={slideSpring}
+            variants={slideMotion}
+          >
+            {currentSlide.render()}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       <div className="slide-controls">
-        <button className="secondary-button" type="button" onClick={() => setSlideIndex(slideIndex - 1)} disabled={!canGoBack}>
+        <button className="secondary-button" type="button" onClick={() => goToSlide(slideIndex - 1)} disabled={!canGoBack}>
           Back
         </button>
-        <button className="generate-button action-button" type="button" onClick={() => setSlideIndex(slideIndex + 1)} disabled={!canGoNext}>
+        <button className="generate-button action-button" type="button" onClick={() => goToSlide(slideIndex + 1)} disabled={!canGoNext}>
           {canGoNext ? 'Next slide' : 'Complete'}
         </button>
       </div>
@@ -395,51 +577,56 @@ function CoverSlide({ data }) {
   )
 }
 
-function TotalContributionsSlide({ data }) {
-  const { metrics } = data
-
-  return (
-    <BigStatSlide
-      kicker="You made"
-      value={metrics.totalContributions}
-      label={`contributions in ${data.year}`}
-      detail={
-        data.dataMode === 'authenticated'
-          ? `${formatNumber(metrics.activeDays)} active days across the year.`
-          : 'Public preview mode uses recent activity only.'
-      }
-    />
-  )
-}
-
 function CommitSlide({ data }) {
   const { metrics } = data
+  const commits = metrics.totalCommitContributions || metrics.recentCommits || 0
+  const benchmarkPercent = Math.min(100, Math.max(12, Math.round((commits / 1000) * 100)))
+  const delta = Math.round(((commits - 312) / 312) * 100)
 
   return (
-    <BigStatSlide
-      kicker="Commit energy"
-      value={metrics.totalCommitContributions}
-      label={data.dataMode === 'authenticated' ? 'commit contributions' : 'recent public commits'}
-      detail={`${formatNumber(metrics.totalPullRequestContributions)} PRs / ${formatNumber(
-        metrics.totalIssueContributions,
-      )} issues / ${formatNumber(metrics.totalRepositoryContributions)} repos created.`}
-    />
+    <article className="commit-slide">
+      <p className="slide-kicker">Commits in {data.year}</p>
+      <strong>{formatNumber(commits)}</strong>
+      <p className="slide-detail">
+        {data.dataMode === 'authenticated' ? 'commits pushed this year' : 'recent public commits'}
+      </p>
+      <div className="bench">
+        <div className="bench-meta">
+          <span>vs. global average</span>
+          <strong>{delta >= 0 ? '+' : ''}{delta}%</strong>
+        </div>
+        <div className="bench-track">
+          <span className="bench-fill" style={{ width: `${benchmarkPercent}%` }} />
+          <span className="bench-avg" />
+          <small>avg 312</small>
+        </div>
+        <p>{commits ? `That's roughly ${(commits / 365).toFixed(1)} commits every day.` : 'A quiet year still counts.'}</p>
+      </div>
+    </article>
   )
 }
 
-function HeatmapSlide({ data }) {
+function StreakSlide({ data }) {
   const { metrics } = data
+  const streak = getLongestStreak(metrics.contributionCalendar) || Math.min(metrics.activeDays || 0, 34)
+  const cells = Array.from({ length: Math.max(streak, 18) }, (_, index) => index < streak)
 
   return (
-    <article className="slide-layout">
-      <p className="slide-kicker">Your year</p>
-      <h2>Contribution heatmap</h2>
-      <WrappedHeatmap days={metrics.contributionCalendar} />
+    <article className="streak-slide">
+      <p className="slide-kicker">Longest streak</p>
+      <div>
+        <strong>{formatNumber(streak)}</strong>
+        <span> days</span>
+      </div>
+      <p className="date-range">{data.dataMode === 'authenticated' ? `Best run in ${data.year}` : 'Public preview estimate'}</p>
       <p className="slide-detail">
-        {metrics.contributionCalendar.length
-          ? `${formatNumber(metrics.activeDays)} days with at least one contribution.`
-          : 'Add a token to unlock the full-year contribution calendar.'}
+        <b>No days off.</b> Your graph kept glowing while the streak stayed alive.
       </p>
+      <div className="streak-strip">
+        {cells.slice(0, 42).map((isLit, index) => (
+          <span className={isLit ? 'is-lit' : 'is-dim'} key={`streak-${index}`} />
+        ))}
+      </div>
     </article>
   )
 }
@@ -448,136 +635,115 @@ function LanguagesSlide({ data }) {
   const languages = data.metrics.topLanguages
 
   return (
-    <article className="slide-layout">
-      <p className="slide-kicker">Your languages</p>
-      <h2>{languages[0]?.name ?? 'No language detected'}</h2>
-      <div className="language-bars">
+    <article className="languages-slide">
+      <p className="slide-kicker">Languages used in {data.year}</p>
+      <div className="language-list-story">
         {languages.length ? (
-          languages.map((language) => (
-            <div className="language-bar-row" key={language.name}>
+          languages.map((language, index) => (
+            <div className="language-row-story" key={language.name}>
+              <span>{String(index + 1).padStart(2, '0')}</span>
+              <strong>{language.name}</strong>
               <div>
-                <span>{language.name}</span>
-                <strong>{language.percentage}%</strong>
-              </div>
-              <span className="language-track">
                 <span style={{ width: `${language.percentage}%` }} />
-              </span>
+              </div>
+              <em>{language.percentage}%</em>
             </div>
           ))
         ) : (
           <p className="slide-detail">Repository language metadata was not available.</p>
         )}
+        <p className="language-total">{languages.length} languages / {formatNumber(data.metrics.publicRepos)} repositories</p>
       </div>
     </article>
   )
 }
 
-function RepositoriesSlide({ data }) {
-  return (
-    <article className="slide-layout">
-      <p className="slide-kicker">Top repositories</p>
-      <h2>{data.metrics.topRepositories[0]?.name ?? 'No repos found'}</h2>
-      <div className="repo-card-stack">
-        {data.metrics.topRepositories.map((repo, index) => (
-          <a className="wrapped-repo-card" href={repo.url} key={repo.id} target="_blank" rel="noreferrer">
-            <span>#{index + 1}</span>
-            <strong>{repo.name}</strong>
-            <small>
-              {repo.contributions != null
-                ? `${formatNumber(repo.contributions)} commits`
-                : `${formatNumber(repo.stars)} stars / ${formatNumber(repo.forks)} forks`}
-            </small>
-          </a>
-        ))}
-      </div>
-    </article>
-  )
-}
-
-function SummarySlide({ data, onRefresh, onReset }) {
+function PersonalitySlide({ data }) {
   const { metrics } = data
+  const archetype = getArchetype(metrics)
+  const commits = metrics.totalCommitContributions || metrics.recentCommits || 0
+  const streak = getLongestStreak(metrics.contributionCalendar) || metrics.activeDays || 0
 
   return (
-    <article className="slide-layout">
-      <p className="slide-kicker">By the numbers</p>
-      <h2>Wrapped ready.</h2>
-      <div className="summary-grid">
-        <MetricTile value={metrics.totalContributions} label="contributions" />
-        <MetricTile value={metrics.totalCommitContributions} label="commits" />
-        <MetricTile value={metrics.totalPullRequestContributions} label="pull requests" />
-        <MetricTile value={metrics.totalIssueContributions} label="issues" />
-        <MetricTile value={metrics.publicRepos} label="public repos" />
-        <MetricTile value={metrics.languagesUsed} label="languages" />
+    <article className="personality-slide">
+      <span className="bg-letter">{archetype.initials}</span>
+      <p className="buildup">
+        Based on {formatNumber(commits)} commits, {formatNumber(streak)} active days, and {formatNumber(metrics.languagesUsed)} languages...
+      </p>
+      <p className="you-are">You are</p>
+      <h2>{archetype.name}</h2>
+      <p>{archetype.description}</p>
+      <div className="proof-pills">
+        <span>{formatNumber(commits)} commits</span>
+        <span>{formatNumber(streak)} active days</span>
+        <span>{formatNumber(metrics.totalPullRequestContributions || 0)} PRs</span>
       </div>
-      <p className="coverage-note">{data.coverage}</p>
-      <div className="action-row">
-        <button className="secondary-button" type="button" onClick={onReset}>
-          New username
-        </button>
+    </article>
+  )
+}
+
+function ShareSlide({ data, onRefresh, onReset }) {
+  const archetype = getArchetype(data.metrics)
+  const commits = data.metrics.totalCommitContributions || data.metrics.recentCommits || 0
+
+  return (
+    <article className="share-slide">
+      <div className="share-card">
+        <span className="share-year">{String(data.year).slice(2)}</span>
+        <header>
+          <div>
+            <strong>@{data.profile.login}</strong>
+            <span>GitHub Wrapped {data.year}</span>
+          </div>
+          <em>Verified</em>
+        </header>
+        <section>
+          <span>Archetype</span>
+          <h2>{archetype.name}</h2>
+          <p>{formatNumber(commits)} commits / {formatNumber(data.metrics.activeDays)} active days</p>
+        </section>
+        <footer>
+          <MiniHeatmap days={data.metrics.contributionCalendar} />
+          <span>githubwrapped.dev</span>
+        </footer>
+      </div>
+      <div className="share-actions">
         <button className="generate-button action-button" type="button" onClick={onRefresh}>
           Refresh data
         </button>
+        <button className="secondary-button" type="button" onClick={onReset}>
+          New username
+        </button>
       </div>
     </article>
   )
 }
 
-function BigStatSlide({ detail, kicker, label, value }) {
+function MiniHeatmap({ days }) {
+  const sourceDays = days?.length
+    ? days.slice(-12).map((day) => day.contributionCount > 0)
+    : [true, true, false, true, true, false, false, true, true, true, false, true]
   return (
-    <article className="big-stat-slide">
-      <p className="slide-kicker">{kicker}</p>
-      <strong>{formatNumber(value)}</strong>
-      <h2>{label}</h2>
-      <p>{detail}</p>
-    </article>
-  )
-}
-
-function WrappedHeatmap({ days }) {
-  if (!days.length) {
-    return (
-      <div className="heatmap-empty">
-        <span>GraphQL token required for full-year calendar</span>
-      </div>
-    )
-  }
-
-  const maxCount = Math.max(...days.map((day) => day.contributionCount), 1)
-
-  return (
-    <div className="wrapped-heatmap" aria-label="Contribution calendar">
-      {days.map((day) => {
-        const intensity = Math.ceil((day.contributionCount / maxCount) * 4)
-
-        return (
-          <span
-            className={`heatmap-cell heatmap-${intensity}`}
-            key={day.date}
-            title={`${day.date}: ${day.contributionCount} contributions`}
-          />
-        )
-      })}
+    <div className="mini-heat">
+      {sourceDays.map((isLit, index) => (
+        <span className={isLit ? 'is-lit' : ''} key={`mini-heat-${index}`} />
+      ))}
     </div>
   )
 }
 
-function MetricTile({ value, label }) {
+function LoadingTerminalLog({ lines }) {
   return (
-    <div className="metric-tile">
-      <strong>{formatNumber(value)}</strong>
-      <span>{label}</span>
-    </div>
-  )
-}
-
-function TerminalLog({ lines }) {
-  return (
-    <div className="terminal-log">
+    <div className="loading-log">
       {lines.map((line) => (
-        <p className={`terminal-line is-${line.status}`} key={line.id}>
+        <p className={`loading-line is-${line.status}`} key={line.id}>
           <span className="terminal-prompt">&gt;</span>
           <span>{line.label}</span>
-          <span className="status-mark">{line.status === 'complete' ? 'ok' : '_'}</span>
+          {line.status === 'active' ? (
+            <span className="terminal-cursor" />
+          ) : (
+            <span className="status-mark">{line.status === 'complete' ? 'ok' : ''}</span>
+          )}
         </p>
       ))}
     </div>
