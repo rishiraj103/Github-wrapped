@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
+  GitHubApiError,
   WRAPPED_YEAR,
   createWrappedData,
-  createWrappedDataFromGraphQL,
+  fetchSecureWrappedData,
   fetchGitHubEvents,
   fetchGitHubRepos,
   fetchGitHubUser,
-  fetchGitHubWrappedGraphQL,
   isValidGitHubUsername,
   normalizeGitHubUsername,
 } from './lib/github'
-
-const configuredGitHubToken = import.meta.env.VITE_GITHUB_TOKEN?.trim() || ''
-const hasConfiguredGitHubToken = Boolean(configuredGitHubToken)
 const sampleUsers = ['torvalds', 'gaearon', 'sindresorhus']
 const cellCount = 52 * 7
 const fetchStages = [
@@ -120,7 +117,6 @@ const getArchetype = (metrics) => {
 function App() {
   const [screen, setScreen] = useState('landing')
   const [username, setUsername] = useState('')
-  const [tokenInput, setTokenInput] = useState('')
   const [lookupUser, setLookupUser] = useState('')
   const [lookupMode, setLookupMode] = useState('public')
   const [fetchLog, setFetchLog] = useState(() => createFetchLog('public'))
@@ -137,8 +133,7 @@ function App() {
 
   const runLookup = async (rawUsername) => {
     const nextUsername = normalizeGitHubUsername(rawUsername)
-    const githubToken = configuredGitHubToken || tokenInput.trim()
-    const nextLookupMode = githubToken ? 'authenticated' : 'public'
+    const nextLookupMode = 'authenticated'
 
     if (!nextUsername) {
       inputRef.current?.focus()
@@ -161,25 +156,40 @@ function App() {
     setScreen('loading')
 
     try {
-      if (nextLookupMode === 'authenticated') {
-        updateFetchStage('auth', 'active')
-        updateFetchStage('auth', 'complete')
+      updateFetchStage('auth', 'active')
+      updateFetchStage('auth', 'complete')
 
-        updateFetchStage('graphql', 'active')
-        const graphqlData = await fetchGitHubWrappedGraphQL({
-          username: nextUsername,
-          token: githubToken,
-        })
-        updateFetchStage('graphql', 'complete')
+      updateFetchStage('graphql', 'active')
+      const nextWrappedData = await fetchSecureWrappedData({
+        username: nextUsername,
+        year: WRAPPED_YEAR,
+      })
+      updateFetchStage('graphql', 'complete')
 
-        updateFetchStage('metrics', 'active')
-        const nextWrappedData = createWrappedDataFromGraphQL({ graphqlData })
-        setWrappedData(nextWrappedData)
-        updateFetchStage('metrics', 'complete')
-        setScreen('wrapped')
+      updateFetchStage('metrics', 'active')
+      setWrappedData(nextWrappedData)
+      updateFetchStage('metrics', 'complete')
+      setScreen('wrapped')
+      return
+    } catch (error) {
+      const canFallbackToPublic =
+        !(error instanceof GitHubApiError) ||
+        !(
+          [401, 422, 429].includes(error.status) ||
+          (error.status === 404 && error.message === 'GitHub user not found.')
+        )
+
+      if (!canFallbackToPublic) {
+        setFetchError(error.message || 'Unable to fetch GitHub data right now.')
+        setScreen('error')
         return
       }
+    }
 
+    setLookupMode('public')
+    setFetchLog(createFetchLog('public'))
+
+    try {
       updateFetchStage('profile', 'active')
       const profile = await fetchGitHubUser(nextUsername)
       updateFetchStage('profile', 'complete')
@@ -243,9 +253,7 @@ function App() {
           inputRef={inputRef}
           onSampleUser={fillSampleUser}
           onSubmit={handleSubmit}
-          setTokenInput={setTokenInput}
           setUsername={setUsername}
-          tokenInput={tokenInput}
           username={username}
         />
       )}
@@ -282,9 +290,7 @@ function LandingPanel({
   inputRef,
   onSampleUser,
   onSubmit,
-  setTokenInput,
   setUsername,
-  tokenInput,
   username,
 }) {
   return (
@@ -312,29 +318,6 @@ function LandingPanel({
             aria-label="GitHub username"
           />
         </label>
-
-        <div className="token-panel">
-          {hasConfiguredGitHubToken ? (
-            <p className="token-status">Authenticated mode enabled from .env.local</p>
-          ) : (
-            <label className="token-field" htmlFor="github-token">
-              <span>GitHub token for full-year data</span>
-              <input
-                id="github-token"
-                type="password"
-                autoComplete="off"
-                value={tokenInput}
-                onChange={(event) => setTokenInput(event.target.value)}
-                placeholder="optional local token"
-                aria-label="GitHub personal access token"
-              />
-            </label>
-          )}
-          <p className="token-helper">
-            Without a token, GitHub only returns public profile, repos, and recent activity.
-          </p>
-        </div>
-
         <button className="generate-button" type="submit">
           Generate Wrapped -&gt;
         </button>
@@ -436,7 +419,10 @@ function ErrorPanel({ fetchError, lookupUser, onReset, onRetry }) {
 function WrappedSequence({ data, onReset }) {
   const [slideIndex, setSlideIndex] = useState(0)
   const [copied, setCopied] = useState(false)
+  const [isPaused, setIsPaused] = useState(false)
   const timerRef = useRef(null)
+  const timerStartedAtRef = useRef(0)
+  const remainingTimeRef = useRef(AUTO_ADVANCE_MS)
 
   const slides = useMemo(
     () => [
@@ -458,24 +444,44 @@ function WrappedSequence({ data, onReset }) {
   const goToSlide = useCallback((nextIndex) => {
     const boundedIndex = Math.min(Math.max(nextIndex, 0), slides.length - 1)
     if (boundedIndex === slideIndex) return
+    remainingTimeRef.current = AUTO_ADVANCE_MS
+    timerStartedAtRef.current = 0
     setSlideIndex(boundedIndex)
   }, [slideIndex, slides.length])
 
-  // Auto-advance timing mirrors the circular CSS loader duration.
   useEffect(() => {
-    if (isLastSlide) {
+    remainingTimeRef.current = AUTO_ADVANCE_MS
+    timerStartedAtRef.current = 0
+  }, [slideIndex])
+
+  useEffect(() => {
+    if (!isPaused || isLastSlide || !timerStartedAtRef.current) {
+      return
+    }
+
+    const elapsed = Date.now() - timerStartedAtRef.current
+    remainingTimeRef.current = Math.max(0, remainingTimeRef.current - elapsed)
+    timerStartedAtRef.current = 0
+  }, [isPaused, isLastSlide])
+
+  useEffect(() => {
+    if (isLastSlide || isPaused) {
       clearTimeout(timerRef.current)
       return
     }
 
+    const delay = Math.max(0, remainingTimeRef.current)
+    timerStartedAtRef.current = Date.now()
     timerRef.current = setTimeout(() => {
+      remainingTimeRef.current = AUTO_ADVANCE_MS
+      timerStartedAtRef.current = 0
       setSlideIndex((prev) => Math.min(prev + 1, slides.length - 1))
-    }, AUTO_ADVANCE_MS)
+    }, delay)
 
     return () => {
       clearTimeout(timerRef.current)
     }
-  }, [slideIndex, isLastSlide, slides.length])
+  }, [slideIndex, isLastSlide, isPaused, slides.length])
 
   // Keyboard navigation
   useEffect(() => {
@@ -528,9 +534,19 @@ function WrappedSequence({ data, onReset }) {
           />
         ))}
       </div>
+      <button
+        className="playback-button"
+        type="button"
+        onClick={() => setIsPaused((prev) => !prev)}
+        aria-label={isPaused ? 'Resume slide autoplay' : 'Pause slide autoplay'}
+        title={isPaused ? 'Play' : 'Pause'}
+        disabled={isLastSlide}
+      >
+        {isPaused ? '>' : '||'}
+      </button>
 
       <button className="exit-button" type="button" onClick={onReset} aria-label="Exit Wrapped">
-        ✕
+        x
       </button>
 
       {/* Tap to advance — the whole frame is clickable */}
@@ -550,7 +566,6 @@ function WrappedSequence({ data, onReset }) {
             if (isPast || depth >= 3) return null
 
             const isFront = depth === 0
-            const strokeCirc = 2 * Math.PI * 48.5
             return (
               <motion.div
                 key={slide.id}
@@ -593,17 +608,17 @@ function WrappedSequence({ data, onReset }) {
                       strokeWidth="1.4"
                     />
                     <circle
-                      className="card-loading-progress"
+                      className={`card-loading-progress${isPaused ? ' is-paused' : ''}`}
                       cx="50"
                       cy="50"
                       r="48.5"
                       fill="none"
                       stroke="var(--accent)"
                       strokeWidth="1.8"
-                      strokeDasharray={strokeCirc}
-                      strokeDashoffset={strokeCirc}
+                      strokeDasharray={2 * Math.PI * 48.5}
+                      strokeDashoffset={2 * Math.PI * 48.5}
                       strokeLinecap="round"
-                      style={{ '--loader-duration': `${AUTO_ADVANCE_MS - 180}ms` }}
+                      style={{ '--loader-duration': `${AUTO_ADVANCE_MS}ms` }}
                     />
                   </svg>
                 )}

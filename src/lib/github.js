@@ -2,6 +2,7 @@ export const WRAPPED_YEAR = 2026
 
 const GITHUB_API_BASE = 'https://api.github.com'
 const GITHUB_GRAPHQL_ENDPOINT = 'https://api.github.com/graphql'
+const SECURE_WRAPPED_ENDPOINT = '/api/github-wrapped'
 const GITHUB_HEADERS = {
   Accept: 'application/vnd.github+json',
   'X-GitHub-Api-Version': '2022-11-28',
@@ -211,6 +212,26 @@ export const fetchGitHubWrappedGraphQL = async ({ username, token, year = WRAPPE
   }
 
   return data
+}
+
+export const fetchSecureWrappedData = async ({ username, year = WRAPPED_YEAR }) => {
+  const response = await fetch(
+    `${SECURE_WRAPPED_ENDPOINT}?username=${encodeURIComponent(username)}&year=${encodeURIComponent(year)}`,
+    {
+      headers: {
+        Accept: 'application/json',
+      },
+    },
+  )
+
+  const body = await response.json().catch(() => null)
+
+  if (!response.ok) {
+    const message = body?.message || 'Secure GitHub Wrapped request failed.'
+    throw new GitHubApiError(message, response.status)
+  }
+
+  return body
 }
 
 const getEventYear = (event) => new Date(event.created_at).getFullYear()
