@@ -295,7 +295,10 @@ function LandingPanel({
 }) {
   return (
     <section className="landing-content" aria-labelledby="landing-title">
-      <p className="eyebrow">GitHub Wrapped {WRAPPED_YEAR}</p>
+      <div className="brand-lockup">
+        <img src="/logo.svg" alt="" className="brand-logo" />
+        <p className="eyebrow">GitHub Wrapped {WRAPPED_YEAR}</p>
+      </div>
       <h1 className="hero-title" id="landing-title">
         Your year in code.
       </h1>
@@ -349,7 +352,10 @@ function LoadingPanel({ fetchLog, lookupMode, lookupUser, onReset }) {
       </div>
 
       <header className="loading-header">
-        <span>GH Wrapped {WRAPPED_YEAR}</span>
+        <span className="loading-brand">
+          <img src="/logo.svg" alt="" className="loading-brand-logo" />
+          <span>GH Wrapped {WRAPPED_YEAR}</span>
+        </span>
         <button type="button" onClick={onReset} aria-label="Cancel loading">
           x
         </button>

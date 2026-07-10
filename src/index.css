@@ -142,8 +142,22 @@ button {
   text-align: center;
 }
 
+.brand-lockup {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.brand-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  box-shadow: 0 0 18px rgba(167, 139, 250, 0.16);
+}
+
 .eyebrow {
-  margin: 0 0 12px;
+  margin: 0;
   color: var(--muted);
   font-size: 14px;
   font-weight: 500;
@@ -357,6 +371,18 @@ button {
   font-size: 16px;
   font-weight: 700;
   letter-spacing: 0;
+}
+
+.loading-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.loading-brand-logo {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
 }
 
 .loading-header button {
@@ -1673,6 +1699,16 @@ button {
     font-size: 12px;
   }
 
+  .brand-lockup {
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .brand-logo {
+    width: 24px;
+    height: 24px;
+  }
+
   .hero-title {
     font-size: 40px;
     line-height: 1.12;
@@ -1695,6 +1731,15 @@ button {
   .loading-header {
     height: 52px;
     padding: 0 16px;
+  }
+
+  .loading-brand {
+    gap: 8px;
+  }
+
+  .loading-brand-logo {
+    width: 20px;
+    height: 20px;
   }
 
   .loading-main {
