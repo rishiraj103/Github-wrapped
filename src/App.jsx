@@ -11,6 +11,8 @@ import {
   isValidGitHubUsername,
   normalizeGitHubUsername,
 } from './lib/github'
+
+const configuredPublicAppUrl = import.meta.env.VITE_PUBLIC_APP_URL?.trim() || ''
 const sampleUsers = ['torvalds', 'gaearon', 'sindresorhus']
 const cellCount = 52 * 7
 const fetchStages = [
@@ -56,6 +58,26 @@ const createFetchLog = (mode = 'public') =>
     }))
 
 const formatNumber = (value) => (value ?? 0).toLocaleString()
+
+const getPublicAppUrl = () => {
+  if (configuredPublicAppUrl) {
+    return configuredPublicAppUrl.replace(/\/+$/, '')
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin
+  }
+
+  return ''
+}
+
+const getPublicAppHost = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url.replace(/^https?:\/\//, '').replace(/\/+$/, '')
+  }
+}
 
 const AUTO_ADVANCE_MS = 3200
 
@@ -429,6 +451,8 @@ function WrappedSequence({ data, onReset }) {
   const timerRef = useRef(null)
   const timerStartedAtRef = useRef(0)
   const remainingTimeRef = useRef(AUTO_ADVANCE_MS)
+  const shareUrl = getPublicAppUrl()
+  const shareHost = getPublicAppHost(shareUrl)
 
   const slides = useMemo(
     () => [
@@ -437,9 +461,9 @@ function WrappedSequence({ data, onReset }) {
       { id: 'streak', render: () => <StreakSlide data={data} /> },
       { id: 'languages', render: () => <LanguagesSlide data={data} /> },
       { id: 'personality', render: () => <PersonalitySlide data={data} /> },
-      { id: 'share', render: () => <ShareSlide data={data} /> },
+      { id: 'share', render: () => <ShareSlide data={data} shareHost={shareHost} /> },
     ],
-    [data],
+    [data, shareHost],
   )
 
   const isLastSlide = slideIndex === slides.length - 1
@@ -500,8 +524,7 @@ function WrappedSequence({ data, onReset }) {
   }, [goToSlide, slideIndex])
 
   const handleShare = async () => {
-    const shareText = `My GitHub Wrapped ${data.year}: I'm "${archetype.name}" with ${formatNumber(commits)} commits! Check yours at githubwrapped.dev`
-    const shareUrl = 'https://githubwrapped.dev'
+    const shareText = `My GitHub Wrapped ${data.year}: I'm "${archetype.name}" with ${formatNumber(commits)} commits! Check yours at ${shareHost}`
 
     if (navigator.share) {
       try {
@@ -774,7 +797,7 @@ function PersonalitySlide({ data }) {
   )
 }
 
-function ShareSlide({ data }) {
+function ShareSlide({ data, shareHost }) {
   const archetype = getArchetype(data.metrics)
   const commits = data.metrics.totalCommitContributions || data.metrics.recentCommits || 0
 
@@ -796,7 +819,7 @@ function ShareSlide({ data }) {
         </section>
         <footer>
           <MiniHeatmap days={data.metrics.contributionCalendar} />
-          <span>githubwrapped.dev</span>
+          <span>{shareHost}</span>
         </footer>
       </div>
     </article>
