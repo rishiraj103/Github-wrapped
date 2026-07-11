@@ -634,7 +634,7 @@ function WrappedSequence({ data, onReset }) {
                       r="48.5"
                       fill="none"
                       stroke="rgba(255,255,255,0.06)"
-                      strokeWidth="0.8"
+                      strokeWidth="0.5"
                     />
                     <circle
                       className={`card-loading-progress${isPaused ? ' is-paused' : ''}`}
@@ -643,7 +643,7 @@ function WrappedSequence({ data, onReset }) {
                       r="48.5"
                       fill="none"
                       stroke="var(--accent)"
-                      strokeWidth="1.0"
+                      strokeWidth="0.7"
                       strokeDasharray={2 * Math.PI * 48.5}
                       strokeDashoffset={2 * Math.PI * 48.5}
                       strokeLinecap="round"
