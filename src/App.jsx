@@ -819,7 +819,6 @@ function ShareSlide({ data, shareHost }) {
         </section>
         <footer>
           <MiniHeatmap days={data.metrics.contributionCalendar} />
-          <span>{shareHost}</span>
         </footer>
       </div>
     </article>
